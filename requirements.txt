@@ -1,0 +1,16 @@
+# ---------------------------------------------------------------
+# n8n AI Agent Projects - Python requirements
+# ---------------------------------------------------------------
+# The workflows themselves run inside n8n (Node.js), so they need
+# NO Python packages. The only Python file in this repository is
+# scripts/validate_workflows.py, which uses the standard library
+# only (Python 3.9 or newer).
+#
+# Nothing needs to be installed:
+#     python scripts/validate_workflows.py
+#
+# Running the workflows requires (installed separately, not via pip):
+#   - n8n (cloud, or self-hosted with Node.js 20+)
+#   - Credentials for the services you use: Telegram Bot API, Gmail,
+#     Google Calendar, Google Drive, Google Gemini API, OpenAI API,
+#     MiniMax API, OpenWeatherMap, NewsAPI

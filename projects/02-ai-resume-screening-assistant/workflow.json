@@ -1,0 +1,278 @@
+{
+  "name": "AI Resume Screening Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {
+          "downloadAttachments": true,
+          "attachmentPrefix": "attachment_"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        16,
+        0
+      ],
+      "id": "1a75b121-523c-4909-9b3b-a25111a80856",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "SRQtxlorarDAbr57",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-detect whichever binary key holds the attachment and normalize it to 'data'.\n// Also extract a clean sender email address, since raw (non-simplified) Gmail data\n// returns 'from' as a header object instead of a plain string.\nconst items = $input.all();\nconst output = [];\n\nfunction extractEmail(raw) {\n  if (!raw) return '';\n  if (typeof raw === 'string') {\n    const match = raw.match(/<([^>]+)>/);\n    return match ? match[1] : raw.trim();\n  }\n  if (typeof raw === 'object') {\n    if (raw.value && Array.isArray(raw.value) && raw.value[0]) return raw.value[0].address || extractEmail(raw.value[0].name);\n    if (raw.text) return extractEmail(raw.text);\n    if (raw.address) return raw.address;\n  }\n  return '';\n}\n\nfor (const item of items) {\n  const binaryKeys = Object.keys(item.binary || {});\n  if (binaryKeys.length === 0) {\n    throw new Error('No attachment found on this email. Make sure the email actually has a PDF attached, and that \"Download Attachments\" is enabled on the Gmail Trigger node.');\n  }\n  const pdfKey = binaryKeys.find(k => (item.binary[k].fileName || '').toLowerCase().endsWith('.pdf')) || binaryKeys[0];\n\n  // Find the From header, whether it's a simplified string field or raw headers array\n  let fromRaw = item.json.from;\n  if (!fromRaw && Array.isArray(item.json.payload && item.json.payload.headers)) {\n    const header = item.json.payload.headers.find(h => (h.name || '').toLowerCase() === 'from');\n    fromRaw = header ? header.value : '';\n  }\n  const fromEmail = extractEmail(fromRaw);\n\n  output.push({\n    json: { ...item.json, fromEmail },\n    binary: {\n      data: item.binary[pdfKey]\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "f4a1b2c3-6d7e-4a8f-9b0c-1d2e3f4a5b6c",
+      "name": "Normalize attachment"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        0
+      ],
+      "id": "de5bd556-c046-4e7e-a1b3-847a62d25817",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a resume screener for a Software Engineer position. Given this resume text: {{ $json.text }}, evaluate if the candidate meets these criteria: at least 2 years of relevant experience, a degree in Computer Science or related field, and experience with at least one modern programming language. Respond with only the single word PASS or FAIL on the first line, followed by a one-sentence reason on the next line."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        0
+      ],
+      "id": "b7a394f4-155b-4dd4-a98f-44b0e4eebb00",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "DYHeYAK8pc8fmI3c",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Robustly extract plain text from the Gemini response, whatever shape it comes in\nconst items = $input.all();\nconst output = [];\n\nfunction findText(obj) {\n  if (typeof obj === 'string') return obj;\n  if (!obj || typeof obj !== 'object') return '';\n  if (typeof obj.text === 'string') return obj.text;\n  if (typeof obj.content === 'string') return obj.content;\n  if (obj.content) return findText(obj.content);\n  if (Array.isArray(obj.parts) && obj.parts[0]) return findText(obj.parts[0]);\n  if (obj.message) return findText(obj.message);\n  if (Array.isArray(obj.candidates) && obj.candidates[0]) return findText(obj.candidates[0]);\n  return JSON.stringify(obj);\n}\n\nfor (const item of items) {\n  const text = findText(item.json.content ?? item.json);\n  output.push({ json: { ...item.json, resultText: text } });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        0
+      ],
+      "id": "a2b3c4d5-7e8f-4a9b-8c0d-1e2f3a4b5c6d",
+      "name": "Extract AI result"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "74bda523-a954-4a41-824c-bd11903a0b0d",
+              "leftValue": "={{ $json.resultText }}",
+              "rightValue": "PASS",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        176,
+        352
+      ],
+      "id": "45d18334-ac67-4248-abcb-007753164606",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Normalize attachment').item.json.fromEmail }}",
+        "subject": "Your Application - Next Steps",
+        "message": "=Hi,\n\nThank you for applying. We reviewed your resume and would like to move forward with your application to the next stage.\n\nOur team's assessment:\n{{ $('Extract AI result').item.json.resultText }}\n\nWe'll be in touch soon with next steps.\n\nBest regards,\nHiring Team",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        256
+      ],
+      "id": "a8a3e5dd-a4ad-4b7f-b9c1-ea354364d0dd",
+      "name": "Send a message",
+      "webhookId": "ed22b71f-53b4-4964-8354-da9f9acaea4b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "SRQtxlorarDAbr57",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Normalize attachment').item.json.fromEmail }}",
+        "subject": "Update on Your Application",
+        "message": "=Hi,\n\nThank you for taking the time to apply. After careful review, we've decided not to move forward with your application at this time.\n\nWe appreciate your interest and encourage you to apply for future openings that match your experience.\n\nBest regards,\nHiring Team",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        448
+      ],
+      "id": "028a6621-5e87-4121-8fb6-ebe372704120",
+      "name": "Send a message1",
+      "webhookId": "a332a2b3-4f55-4241-be40-c15bbc904b58",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "SRQtxlorarDAbr57",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize attachment": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Extract AI result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract AI result": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "675722b7-6007-4528-bd8c-fec686bfde6f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "37c4451276eb552690ceaa79f93ba397dfe094c5069e19b48acdb8562e8d6aab"
+  },
+  "nodeGroups": [],
+  "id": "cFEGCgs8KNQRYsJq",
+  "tags": []
+}

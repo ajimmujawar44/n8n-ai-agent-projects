@@ -1,0 +1,488 @@
+{
+  "name": "AI Telegram Appointment Booking Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "your-calendar@gmail.com",
+          "mode": "list",
+          "cachedResultName": "your-calendar@gmail.com"
+        },
+        "start": "={{\nDateTime.fromFormat(\n  $json.output.appointment_date + \" \" + $json.output.appointment_time,\n  \"dd-MM-yyyy h:mm a\",\n  { zone: \"Asia/Kolkata\" }\n).toISO()\n}}",
+        "end": "={{\nDateTime.fromFormat(\n  $json.output.appointment_date + \" \" + $json.output.appointment_time,\n  \"dd-MM-yyyy h:mm a\",\n  { zone: \"Asia/Kolkata\" }\n)\n.plus({ hours: 1 })\n.toISO()\n}}",
+        "additionalFields": {
+          "description": "={{`Patient: ${$json.output.patient_name}\\nPhone: ${$json.output.phone_number}\\nDoctor: ${$json.output.doctor_specialization}`}}"
+        }
+      },
+      "id": "82568287-a51b-44af-a3c7-9a224b1d0e43",
+      "name": "Create an event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1312,
+        1120
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "bkimHbyBAApvfMxo",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "82736e96-2746-4593-9f79-90bcb514db38",
+              "leftValue": "={{ $json.output.status }}",
+              "rightValue": "complete",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "30001daf-9433-48f8-a488-d6541a1a8902",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "={{\"Please provide the following details:\\n\\n• \" +$json.output.missing_fields.join(\"\\n• \")}}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "4e0d78db-98ec-44c1-b49e-dae94150b752",
+      "name": "Send a text message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        1280
+      ],
+      "webhookId": "df9e3dd0-42c3-4edc-a66e-9c23a31597bf",
+      "credentials": {
+        "telegramApi": {
+          "id": "LLjlmVW5Y8uqWnSm",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=GOAL:\nCollect the information required to book a hospital appointment.\n\nRequired Fields:\n- patient_name\n- phone_number\n- appointment_date\n- appointment_time (must include AM or PM)\n\nOptional Field:\n- \"doctor_specialization\": \"Would you like to consult a specialist doctor or a General Physician? If a specialist, please mention the specialization.\"\nInstructions:\n\n- Extract the required fields from the conversation.\n- Use conversation memory to retain previously collected information.\n- Do not ask again for fields that are already available.\n- Never assume or invent any missing information.\n- If the user does not explicitly provide a required field, leave it empty and include it in \"missing_fields\".\n- doctor_specialization is optional and must never be included in \"missing_fields\".\n- If the user specifies a specialist, store the specialization exactly as provided.\n- If the user explicitly requests a General Physician, set:\n  \"doctor_specialization\": \"General Physician\"\n- If the user does not mention a doctor preference, set:\n  \"doctor_specialization\": \"General Physician\"\n\nReturn ONLY valid JSON.\n\nIf required information is incomplete:\n\n{\n  \"status\": \"incomplete\",\n  \"patient_name\": \"\",\n  \"phone_number\": \"\",\n  \"appointment_date\": \"\",\n  \"appointment_time\": \"\",\n  \"doctor_specialization\": \"\",\n  \"missing_fields\": []\n}\n\nIf all required information is available:\n\n{\n  \"status\": \"complete\",\n  \"patient_name\": \"\",\n  \"phone_number\": \"\",\n  \"appointment_date\": \"\",\n  \"appointment_time\": \"\",\n  \"doctor_specialization\": \"\"\n}\n\nUser Message:\n{{ $('Telegram Trigger').item.json.message.text }}",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "f48c36f3-c446-4c1b-ba81-952b1bac1c82",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        608,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "id": "dd1b6e3e-6f86-4ac5-b3e0-91c1d59364e3",
+      "name": "Simple Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        640,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=GOAL:\nClassify the user's message.\n\nPossible intents:\n- greeting\n- appointment_booking\n- other\n\nRules:\n- greeting: User says hi, hello, hey, good morning, good evening, start, etc.\n- appointment_booking: User wants to book an appointment or mentions a date/time for a hospital visit.\n- other: Any message unrelated to hospital appointment booking.\n\nReturn ONLY valid JSON:\n\n{\n  \"intent\": \"\"\n}\n\nUser Message:\n{{$json.message.text}}",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "9710898e-5d78-4280-bdd9-06ba82b9aa10",
+      "name": "AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -128,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"intent\": \"\"\n}"
+      },
+      "id": "7f605f1a-0099-4a5f-b28e-7c28ed5625d0",
+      "name": "Structured Output Parser1",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "237b6541-9cf9-4ded-ba23-f5a8a3ae57c6",
+      "name": "MiniMax Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatMinimax",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        1376
+      ],
+      "credentials": {
+        "minimaxApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2e1f7638-7d63-4a64-9065-2c51f8ab1a48",
+              "leftValue": "={{ $json.output.intent }}",
+              "rightValue": "appointment_booking",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "139aab3d-56b8-4eb2-a221-7cc5fd4a07b1",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        160,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{\n`🏥 Hospital Appointment Booking Assistant\n\nHello ${$node[\"Telegram Trigger\"].json.message.from.first_name}! 👋\n\nI can help you schedule your hospital appointment.\n\nPlease provide the following details:\n\n👤 Patient Name:\n📱 Phone Number:\n📅 Appointment Date (DD-MM-YYYY):\n⏰ Appointment Time (include AM/PM):\n\nOptional:\n👨‍⚕️ Preferred Doctor Type:\n• General Physician\nOR\n• Specialist (e.g., Cardiologist, Dermatologist, Orthopedic, Neurologist)\n\nExample:\n\n👤 Patient Name: Kumar\n📱 Phone Number: +91 9876543210\n📅 Appointment Date: 22-07-2026\n⏰ Appointment Time: 9:00 AM\n👨‍⚕️ Doctor Type: General Physician\n\n📩 Reply with the details in the above format.\n\nOnce you provide these details, I will proceed with your appointment request.`\n}}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d8384144-df40-4da8-91e3-54b43b76ec83",
+      "name": "Send a text message1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        288,
+        1328
+      ],
+      "webhookId": "905c7624-989b-4cac-bd98-beef53505ff7",
+      "credentials": {
+        "telegramApi": {
+          "id": "LLjlmVW5Y8uqWnSm",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        -96,
+        1424
+      ],
+      "id": "9e0e27e5-c90f-4202-a7a2-4cf1a6e0f782",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{\n\"✅ Appointment Booked Successfully!\\n\\n\" +\n\n\"👤 Patient Name: \" + $('If').item.json.output.patient_name + \"\\n\" +\n\"📅 Date: \" + $('If').item.json.output.appointment_date + \"\\n\" +\n\"⏰ Time: \" + $('If').item.json.output.appointment_time + \"\\n\" +\n\"👨‍⚕️ Doctor: \" +\n($('If').item.json.output.doctor_specialization || \"General Physician\") +\n\"\\n\\n\" +\n\n\"📌 Calendar Event:\\n\" +\n$json.htmlLink\n}}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1520,
+        1120
+      ],
+      "id": "3b815daa-9817-44ee-af5d-a672bacf4f97",
+      "name": "Send a text message2",
+      "webhookId": "09172c2f-f383-42cd-8012-0772b42b7c1b",
+      "credentials": {
+        "telegramApi": {
+          "id": "LLjlmVW5Y8uqWnSm",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -352,
+        1168
+      ],
+      "id": "4d1b5bd5-2ad1-48c7-8848-da0260bae3ea",
+      "name": "Telegram Trigger",
+      "webhookId": "b5021345-54bd-40c0-b06f-fc14d3a066a2",
+      "credentials": {
+        "telegramApi": {
+          "id": "LLjlmVW5Y8uqWnSm",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        1168
+      ],
+      "id": "baf85799-3f91-4883-8f9b-057ada530bef",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "yKnXNVzBLHdiMMqI",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"status\": \"incomplete\",\n  \"patient_name\": \"\",\n  \"phone_number\": \"\",\n  \"appointment_date\": \"\",\n  \"appointment_time\": \"\",\n  \"doctor_specialization\": \"\",\n  \"missing_fields\": []\n}"
+      },
+      "id": "5f8a0c44-8a93-4c75-9386-49948ab2dd40",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        832,
+        1456
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MiniMax Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fdc18ee1-035c-4cf9-b410-54e1c8112fa9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "37c4451276eb552690ceaa79f93ba397dfe094c5069e19b48acdb8562e8d6aab"
+  },
+  "nodeGroups": [],
+  "id": "82F1llKBYTdrJ9zH",
+  "tags": []
+}
